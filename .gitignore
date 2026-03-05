@@ -1,0 +1,28 @@
+# ===== Data files (too large for GitHub) =====
+data/*.csv.gz
+data/*.pkl
+data/*.CSV
+data/csv/
+data/parquet_backup/
+
+# ===== HTML exports (can be regenerated from notebooks) =====
+*.html
+
+# ===== Jupyter checkpoints =====
+.ipynb_checkpoints/
+
+# ===== Python cache =====
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ===== OS files =====
+Thumbs.db
+.DS_Store
+
+# ===== IDE =====
+.vscode/
+.idea/
+
+# ===== Archived notebooks =====
+archived/
