@@ -65,17 +65,6 @@ Data sources:
 | Enhanced Constraint Set | Adds market beta neutrality, tighter single-name limits, and higher gross capacity for the enhanced branch |
 | Monthly Proxy Backtest | Flat bps trading cost proxy plus borrow cost, monthly NAV, FF5 attribution, drawdown, and long/short leg analysis |
 
----
-
-## Important Implementation Notes
-
-- Phase 3 does **not** implement Ledoit-Wolf shrinkage. The current code uses sample covariance on the stratified core universe, PCA on the correlation matrix, and a 5% post-PCA shrink toward the diagonal.
-- The enhanced branch does **not** impose hard SMB/HML exposure constraints. Its additional hard constraint is market beta neutrality.
-- The enhanced beta model is estimated from a 36-month monthly return window, not a 63-day rolling daily OLS window.
-- Phase 4 should be interpreted as a research-grade monthly proxy backtest. It is not an execution-level simulator with square-root market impact.
-- The implemented Value score is `0.67 * Z(Earnings Yield) + 0.33 * Z(Price-to-Book)`, matching the current notebook implementation.
-
----
 
 ## Project Pipeline
 
