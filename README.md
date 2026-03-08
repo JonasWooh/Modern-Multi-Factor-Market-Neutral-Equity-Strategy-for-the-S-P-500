@@ -1,6 +1,10 @@
 # Modern Multi-Factor Market Neutral Equity Strategy for S&P 500
 
-A comprehensive quantitative finance research project that implements a **multi-factor market-neutral equity strategy** on the S&P 500 universe. The project spans the full quantitative investment pipeline — from raw data acquisition through factor engineering, risk modeling, portfolio optimization, to high-fidelity backtesting and performance attribution.
+A comprehensive quantitative finance research project that implements a multi-factor market-neutral equity strategy on the S&P 500 universe. The repository covers the full research pipeline: data acquisition, factor engineering, risk modeling, portfolio optimization, and monthly proxy backtesting with performance attribution.
+
+> This README documents the code as currently implemented. It includes two instructor-approved simplifications relative to the original proposal: (1) Phase 3 uses post-PCA diagonal shrinkage instead of Ledoit-Wolf shrinkage, and (2) Phase 4 is a monthly proxy backtest with a flat transaction-cost model rather than an execution-level simulator.
+>
+> Authorship notice: all code in this repository was independently written and assembled by Jonas Wu. Please do not copy, reuse, or redistribute this work without explicit permission and proper attribution.
 
 ---
 
@@ -8,6 +12,7 @@ A comprehensive quantitative finance research project that implements a **multi-
 
 - [Project Overview](#project-overview)
 - [Key Features](#key-features)
+- [Important Implementation Notes](#important-implementation-notes)
 - [Project Pipeline](#project-pipeline)
 - [Repository Structure](#repository-structure)
 - [Data Pipeline & Outputs](#data-pipeline--outputs)
@@ -25,17 +30,25 @@ A comprehensive quantitative finance research project that implements a **multi-
 
 ## Project Overview
 
-This project constructs a **dollar-neutral, sector-balanced long/short equity portfolio** using three classic alpha factors (Value, Size, Momentum), applying modern quantitative techniques at each stage:
+This project constructs a dollar-neutral, sector-balanced long/short equity portfolio using three classic alpha factors: Value, Size, and Momentum. The implementation combines:
 
-- **Fama-MacBeth cross-sectional regressions** to extract pure factor returns
-- **Factor Risk Parity (FRP)** for dynamic factor weighting
-- **PCA-based statistical risk model** for covariance estimation
-- **Convex optimization** with turnover penalty and realistic constraints
-- **Fama-French 5-Factor attribution** to isolate genuine alpha
+- Fama-MacBeth-style monthly cross-sectional regressions to extract realized pure factor returns
+- Factor Risk Parity (FRP) for dynamic multi-factor signal weighting
+- A PCA-based statistical risk model for covariance estimation
+- CVXPY optimization with turnover penalty and realistic portfolio constraints
+- Monthly Fama-French 5-factor attribution on realized portfolio returns
 
-**Universe**: S&P 500 constituents (survivorship-bias-free)  
-**Backtest Period**: 2010–2024 (monthly rebalancing)  
-**Data Source**: CRSP & Compustat via WRDS
+Key windows in the implemented pipeline:
+
+- Universe history: daily panel from 2008-01 to 2024-12
+- Signal sample: 2010-01 to 2024-12
+- Portfolio backtest sample: 2011-12 to 2024-12
+- Rebalancing frequency: monthly
+
+Data sources:
+
+- CRSP and Compustat via WRDS
+- Fama-French 5-factor daily data for monthly aggregation and attribution
 
 ---
 
@@ -43,119 +56,120 @@ This project constructs a **dollar-neutral, sector-balanced long/short equity po
 
 | Feature | Description |
 |---|---|
-| **Survivorship-Bias-Free** | Full price history for all stocks ever included in S&P 500, including delisted securities |
-| **Point-in-Time Discipline** | All fundamental data aligned via `rdq` with 45-day delay from `datadate` — no look-ahead bias |
-| **Intra-Sector Standardization** | Z-scores computed within `date × GICS sector` groups using MAD winsorization |
-| **Pure Factor Returns** | Fama-MacBeth (1973) procedure orthogonalizes factor contributions |
-| **Dynamic Factor Weighting** | Factor Risk Parity ensures equal marginal risk contribution across factors |
-| **PCA Risk Model** | Stratified core selection → PCA → universe regression → full covariance matrix |
-| **Convex Optimizer** | CVXPY-based with dollar neutrality, sector balance, turnover penalty, leverage limits |
-| **Enhanced Constraints** | Beta neutrality, factor exposure limits, tighter diversification requirements |
-| **Realistic Transaction Costs** | Commission + market impact + borrow cost model |
+| Survivorship-Bias-Free Universe | Uses a dynamic S&P 500 membership history and retains delisted securities in the price panel |
+| Point-in-Time Discipline | Fundamentals are aligned with `pit_date = max(rdq + 1 day, datadate + 45 days)` to avoid look-ahead bias |
+| Intra-Sector Standardization | Z-scores are computed within `date x gsector` groups using MAD winsorization |
+| Three-Factor Signal Stack | Value, Size, and Momentum are standardized and merged into a monthly 3-factor panel |
+| Pure Factor Return Extraction | Monthly cross-sectional regressions produce realized pure factor returns for Value, Size, and Momentum |
+| Dynamic FRP Weighting | Direct risk parity on rolling pure-factor covariance generates time-varying factor weights |
+| PCA Risk Model | Stratified core selection, PCA on the correlation matrix, universe regressions, and post-PCA diagonal shrinkage |
+| Convex Optimization | Dollar-neutral portfolio construction with leverage, single-name, sector, volatility, and turnover controls |
+| Enhanced Constraint Set | Adds market beta neutrality, tighter single-name limits, and higher gross capacity for the enhanced branch |
+| Monthly Proxy Backtest | Flat bps trading cost proxy plus borrow cost, monthly NAV, FF5 attribution, drawdown, and long/short leg analysis |
+
+---
+
+## Important Implementation Notes
+
+- Phase 3 does **not** implement Ledoit-Wolf shrinkage. The current code uses sample covariance on the stratified core universe, PCA on the correlation matrix, and a 5% post-PCA shrink toward the diagonal.
+- The enhanced branch does **not** impose hard SMB/HML exposure constraints. Its additional hard constraint is market beta neutrality.
+- The enhanced beta model is estimated from a 36-month monthly return window, not a 63-day rolling daily OLS window.
+- Phase 4 should be interpreted as a research-grade monthly proxy backtest. It is not an execution-level simulator with square-root market impact.
+- The implemented Value score is `0.67 * Z(Earnings Yield) + 0.33 * Z(Price-to-Book)`, matching the current notebook implementation.
 
 ---
 
 ## Project Pipeline
 
-```
-Phase 1: Data Acquisition & Preprocessing
-  │   HFS_Project_Data_Fetcher_0304.ipynb
-  │
-  ├──► sp500_price_panel_with_delist.csv.gz    (daily price panel, 871 stocks)
-  ├──► sp500_monthly_returns.csv.gz            (monthly compounded returns)
-  └──► sp500_monthly_signals_rebuilt_nodvmt.csv.gz  (Value & Size signals)
-          │
-Phase 2 Task 2.1: Momentum Factor Construction
-  │   HFS_Phase2_Momentum.ipynb
-  │
-  └──► sp500_monthly_signals_3factor.csv.gz    (3-factor panel: Value, Size, Momentum)
-          │
-Phase 2 Task 2.2: Cross-Sectional Regression (Fama-MacBeth)
-  │   HFS_Phase2_Task2_2_CrossSectionalRegression.ipynb
-  │
-  └──► sp500_pure_factor_returns.csv.gz        (monthly pure factor returns)
-          │
-Phase 2 Task 2.3/2.4: FRP & Expected Returns
-  │   HFS_Phase2_Task2_3_FRP_and_ExpectedReturns.ipynb
-  │
-  ├──► sp500_frp_weights.csv.gz                (dynamic factor weights)
-  └──► sp500_expected_returns.csv.gz           (expected return vector μ(i,t))
-          │
-Phase 3 Task 3.1: PCA Risk Model
-  │   HFS_Phase3_Task3_1_PCA_RiskModel.ipynb
-  │
-  └──► sp500_risk_model.pkl                    (β, Ω_f, Λ_ε components)
-          │
-Phase 3 Task 3.2: Convex Portfolio Optimizer
-  │   HFS_Phase3_Task3_2_Optimizer.ipynb
-  │
-  ├──► sp500_portfolio_weights.csv.gz          (optimal weights ω*(i,t))
-  └──► sp500_backtest_results.csv.gz           (NAV, returns, turnover)
-          │
-Phase 3 Task 3.3: Enhanced Optimizer (stricter constraints)
-  │   HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb
-  │
-  ├──► sp500_portfolio_weights_enhanced.csv.gz
-  └──► sp500_backtest_results_enhanced.csv.gz
-          │
-Phase 4: Backtest & Performance Attribution
-  │   HFS_Phase4_Task3_2_Backtest_Attribution.ipynb
-  │
-  └──► Performance reports & visualizations (figures/)
-```
+1. Phase 1: Data Acquisition & Preprocessing
+   - Notebook: `HFS_Project_Data_Fetcher_0304.ipynb`
+   - Outputs:
+     - `data/sp500_price_panel_with_delist.csv.gz`
+     - `data/sp500_monthly_returns.csv.gz`
+     - `data/sp500_monthly_signals_rebuilt_nodvmt.csv.gz`
+
+2. Phase 2.1: Momentum Factor Construction
+   - Notebook: `HFS_Phase2_Momentum.ipynb`
+   - Output:
+     - `data/sp500_monthly_signals_3factor.csv.gz`
+
+3. Phase 2.2: Cross-Sectional Regression
+   - Notebook: `HFS_Phase2_Task2_2_CrossSectionalRegression.ipynb`
+   - Output:
+     - `data/sp500_pure_factor_returns.csv.gz`
+
+4. Phase 2.3 / 2.4: FRP and Expected Returns
+   - Notebook: `HFS_Phase2_Task2_3_FRP_and_ExpectedReturns.ipynb`
+   - Outputs:
+     - `data/sp500_frp_weights.csv.gz`
+     - `data/sp500_expected_returns.csv.gz`
+
+5. Phase 3.1: PCA Risk Model
+   - Notebook: `HFS_Phase3_Task3_1_PCA_RiskModel.ipynb`
+   - Outputs:
+     - `data/sp500_risk_model.pkl`
+     - `data/sp500_risk_model_diagnostics.csv`
+
+6. Phase 3.2: Baseline Optimizer
+   - Notebook: `HFS_Phase3_Task3_2_Optimizer.ipynb`
+   - Outputs:
+     - `data/sp500_portfolio_weights.csv.gz`
+     - `data/sp500_backtest_results.csv.gz`
+
+7. Phase 3.3: Enhanced Optimizer
+   - Notebook: `HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb`
+   - Outputs:
+     - `data/sp500_portfolio_weights_enhanced.csv.gz`
+     - `data/sp500_backtest_results_enhanced.csv.gz`
+     - `figures_enhanced/`
+
+8. Phase 4: Baseline Backtest Attribution
+   - Notebook: `HFS_Phase4_Task3_2_Backtest_Attribution.ipynb`
+   - Outputs:
+     - `data/sp500_phase4_full_report.csv.gz`
+     - `figures/`
 
 ---
 
 ## Repository Structure
 
+```text
+README.md
+Project_Proposal_SP500 Market Neutral.pdf
+HFS_Project_Data_Fetcher_0304.ipynb
+HFS_Phase2_Momentum.ipynb
+HFS_Phase2_Task2_2_CrossSectionalRegression.ipynb
+HFS_Phase2_Task2_3_FRP_and_ExpectedReturns.ipynb
+HFS_Phase3_Task3_1_PCA_RiskModel.ipynb
+HFS_Phase3_Task3_2_Optimizer.ipynb
+HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb
+HFS_Phase4_Task3_2_Backtest_Attribution.ipynb
+
+/data
+/figures
+/figures_enhanced
+/archived
 ```
-├── README.md
-├── Project_Proposal_SP500 Market Neutral.pdf
-│
-├── HFS_Project_Data_Fetcher_0304.ipynb        # Phase 1: Data acquisition from WRDS
-├── HFS_Phase2_Momentum.ipynb                  # Phase 2.1: Momentum factor construction
-├── HFS_Phase2_Task2_2_CrossSectionalRegression.ipynb  # Phase 2.2: Fama-MacBeth regression
-├── HFS_Phase2_Task2_3_FRP_and_ExpectedReturns.ipynb   # Phase 2.3-2.4: FRP & expected returns
-├── HFS_Phase3_Task3_1_PCA_RiskModel.ipynb     # Phase 3.1: PCA risk model
-├── HFS_Phase3_Task3_2_Optimizer.ipynb         # Phase 3.2: Convex portfolio optimizer
-├── HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb  # Phase 3.3: Enhanced constraints
-├── HFS_Phase4_Task3_2_Backtest_Attribution.ipynb       # Phase 4: Backtesting & attribution
-│
-├── data/                                      # All intermediate and final datasets
-│   ├── csv/                                   # Uncompressed CSV backups
-│   ├── parquet_backup/                        # Parquet format backups
-│   ├── F-F_Research_Data_5_Factors_2x3_daily.CSV  # Fama-French 5-factor daily data
-│   ├── sp500_price_panel_with_delist.csv.gz   # Daily price panel (2008-2024)
-│   ├── sp500_monthly_returns.csv.gz           # Monthly compounded returns
-│   ├── sp500_monthly_signals_3factor.csv.gz   # 3-factor exposure panel
-│   ├── sp500_pure_factor_returns.csv.gz       # Pure factor return time series
-│   ├── sp500_frp_weights.csv.gz               # FRP dynamic factor weights
-│   ├── sp500_expected_returns.csv.gz          # Expected return vectors
-│   ├── sp500_risk_model.pkl                   # PCA risk model components
-│   ├── sp500_portfolio_weights.csv.gz         # Baseline portfolio weights
-│   ├── sp500_portfolio_weights_enhanced.csv.gz # Enhanced portfolio weights
-│   ├── sp500_backtest_results.csv.gz          # Baseline backtest results
-│   ├── sp500_backtest_results_enhanced.csv.gz # Enhanced backtest results
-│   └── sp500_risk_model_diagnostics.csv       # Risk model diagnostic metrics
-│
-├── figures/                                   # Baseline strategy visualizations
-│   ├── nav_drawdown.png                       # NAV curve & drawdown analysis
-│   ├── strategy_vs_spy.png                    # Strategy vs S&P 500 comparison
-│   ├── rolling_alpha.png                      # Rolling alpha analysis
-│   ├── factor_exposures.png                   # FF5 factor exposure decomposition
-│   ├── long_short_legs.png                    # Long/short leg attribution
-│   ├── monthly_returns.png                    # Monthly return distribution
-│   └── portfolio_characteristics.png          # Portfolio characteristics over time
-│
-├── figures_enhanced/                          # Enhanced strategy visualizations
-│   ├── nav_drawdown_enhanced.png
-│   ├── strategy_vs_spy_enhanced.png
-│   ├── rolling_alpha_enhanced.png
-│   ├── long_short_enhanced.png
-│   └── characteristics_enhanced.png
-│
-└── archived/                                  # Archived/outdated notebooks
-```
+
+---
+
+## Data Pipeline & Outputs
+
+Main saved artifacts used by downstream notebooks:
+
+- `data/sp500_price_panel_with_delist.csv.gz`: survivorship-bias-free daily price panel with delisting adjustment inputs
+- `data/sp500_monthly_returns.csv.gz`: monthly compounded stock returns
+- `data/sp500_monthly_signals_3factor.csv.gz`: monthly Value, Size, Momentum exposures
+- `data/sp500_pure_factor_returns.csv.gz`: realized monthly pure factor returns
+- `data/sp500_frp_weights.csv.gz`: FRP weights and risk-contribution diagnostics
+- `data/sp500_expected_returns.csv.gz`: expected-return panel with `z_frp_compound`, `ret_vol`, and `mu_compound`
+- `data/sp500_risk_model.pkl`: rolling PCA risk model objects (`beta`, `omega_f`, `lambda_eps`, `permnos`)
+- `data/sp500_risk_model_diagnostics.csv`: monthly risk-model diagnostics
+- `data/sp500_portfolio_weights.csv.gz`: baseline portfolio weights
+- `data/sp500_portfolio_weights_enhanced.csv.gz`: enhanced portfolio weights
+- `data/sp500_backtest_results.csv.gz`: baseline gross backtest outputs
+- `data/sp500_backtest_results_enhanced.csv.gz`: enhanced gross and net backtest outputs
+- `data/sp500_phase4_full_report.csv.gz`: baseline gross and net backtest outputs after Phase 4 cost modeling
 
 ---
 
@@ -165,81 +179,131 @@ Phase 4: Backtest & Performance Attribution
 
 **Notebook**: `HFS_Project_Data_Fetcher_0304.ipynb`
 
-- Fetches S&P 500 constituent history, daily prices/returns, and quarterly fundamentals from **WRDS** (CRSP + Compustat)
-- Constructs **survivorship-bias-free** daily price panel (871 stocks, 2008–2024)
-- Computes monthly compounded returns with **delisting adjustment**
-- Builds **Value** (0.67·Z(Earnings Yield) + 0.33·Z(Price-to-Book)) and **Size** (−Z(Market Cap)) factor signals
-- All Z-scores are **intra-sector MAD-winsorized** to ensure cross-sector comparability
+- Fetches S&P 500 constituent history, CRSP prices and returns, delisting events, and Compustat quarterly fundamentals from WRDS.
+- Constructs a survivorship-bias-free daily price panel.
+- Applies delisting adjustments using `(1 + ret) * (1 + dlret) - 1` on delisting dates.
+- Builds point-in-time fundamentals with `pit_date = max(rdq + 1 day, datadate + 45 days)`.
+- Computes:
+  - Value: `0.67 * Z(Earnings Yield) + 0.33 * Z(Price-to-Book)`
+  - Size: `-Z(log market cap)`
+- Standardizes all raw components within `date x gsector` groups using MAD winsorization.
 
 ### Phase 2: Factor Engineering
 
-#### Task 2.1 — Momentum Factor (`HFS_Phase2_Momentum.ipynb`)
+#### Task 2.1 - Momentum Factor (`HFS_Phase2_Momentum.ipynb`)
 
-- Implements **Jegadeesh & Titman (1993)** momentum: cumulative return over months [t-12, t-2]
-- Skips the most recent month to avoid short-term reversal contamination
-- Intra-sector Z-score standardization consistent with Value and Size
-- Produces complete 3-factor monthly signal panel
+- Implements the Jegadeesh-Titman style momentum signal over months `[t-12, t-2]`.
+- Skips the most recent month to reduce short-term reversal contamination.
+- Requires at least 8 valid months out of the 11-month formation window.
+- Applies the same intra-sector MAD winsorized z-score procedure used in Phase 1.
 
-#### Task 2.2 — Cross-Sectional Regression (`HFS_Phase2_Task2_2_CrossSectionalRegression.ipynb`)
+#### Task 2.2 - Cross-Sectional Regression (`HFS_Phase2_Task2_2_CrossSectionalRegression.ipynb`)
 
-- **Fama-MacBeth (1973)** procedure: monthly cross-sectional OLS of excess returns on factor exposures
-- Extracts **pure factor returns** $\tilde{f}_t = (\beta'\beta)^{-1}\beta' x_t$
-- Computes Fama-MacBeth t-statistics to test factor premium significance
-- Validates against Fama-French 5 factors (HML, SMB correlation checks)
+- Merges same-month stock excess returns with same-month factor exposures.
+- Runs monthly cross-sectional OLS of excess returns on Value, Size, and Momentum exposures plus an intercept.
+- Saves realized pure factor returns `f_value`, `f_size`, and `f_mom`.
+- Reports coefficient t-statistics and cross-sectional `R^2` diagnostics.
 
-#### Task 2.3/2.4 — Factor Risk Parity & Expected Returns (`HFS_Phase2_Task2_3_FRP_and_ExpectedReturns.ipynb`)
+#### Task 2.3 / 2.4 - FRP and Expected Returns (`HFS_Phase2_Task2_3_FRP_and_ExpectedReturns.ipynb`)
 
-- **Factor Risk Parity (FRP)**: dynamic weights ensuring equal Marginal Risk Contribution across factors
-- Rolling covariance estimation on pure factor returns → PCA → risk decomposition
-- Expected return generation: $\mu(i,t) = \sum_k w_k^{FRP}(t) \cdot Z_k(i,t)$, scaled by cross-sectional volatility
+- Estimates a rolling covariance matrix of pure factor returns using EWMA.
+- Solves direct risk parity in factor space; PCA-mapped weights are also saved for diagnostics.
+- Forms the composite factor score:
+  - `z_frp_compound = w_value * value_factor + w_size * size_factor + w_mom * momentum_factor`
+- Estimates trailing 12-month stock volatility.
+- Builds expected returns as:
+  - `mu_compound = ret_vol * z_frp_compound`
+- Winsorizes `mu_compound` cross-sectionally each month.
+- Validates signal quality with next-month Information Coefficient diagnostics.
 
 ### Phase 3: Risk Modeling & Portfolio Optimization
 
-#### Task 3.1 — PCA Risk Model (`HFS_Phase3_Task3_1_PCA_RiskModel.ipynb`)
+#### Task 3.1 - PCA Risk Model (`HFS_Phase3_Task3_1_PCA_RiskModel.ipynb`)
 
-- **Stratified core selection**: ~55 stocks from 11 GICS sectors via market-cap stratification
-- **PCA decomposition**: 3–15 principal components capturing ~90% variance
-- **Universe regression**: OLS of all ~600 stocks on PC returns → factor loadings and idiosyncratic variance
-- **Covariance reconstruction**: $\Sigma = \beta \Omega_f \beta' + \Lambda_\varepsilon$
+- Selects a stratified core universe of about 55 stocks across 11 GICS sectors.
+- Computes a rolling core covariance matrix from daily returns.
+- Runs PCA on the **correlation matrix**, not the raw covariance matrix.
+- Retains between 3 and 30 principal components to reach a 90% cumulative variance target.
+- Regresses the wider universe on core PC returns to estimate loadings and idiosyncratic variance.
+- Reconstructs the covariance model as `Sigma = beta * Omega_f * beta' + Lambda_eps`.
+- Applies a 5% post-PCA diagonal shrink toward the full covariance diagonal.
 
-#### Task 3.2 — Convex Portfolio Optimizer (`HFS_Phase3_Task3_2_Optimizer.ipynb`)
+#### Task 3.2 - Baseline Optimizer (`HFS_Phase3_Task3_2_Optimizer.ipynb`)
 
-- **CVXPY** convex optimization: $\max_w \; \mu'w - \lambda \cdot w'\Sigma w - \kappa \cdot \|w - w_{prev}\|_1$
-- **Constraints**: dollar neutrality ($\sum w = 0$), gross leverage limit, position bounds, sector balance
-- Monthly rebalancing with **turnover penalty** for realistic implementation
+- Solves a CVXPY objective of expected return minus risk minus turnover penalty.
+- Uses the risk model from Phase 3.1 and expected returns from Phase 2.4.
+- Baseline hard constraints:
+  - dollar neutrality: `sum(w) = 0`
+  - gross leverage: `||w||_1 <= 2.0`
+  - single-name bounds: `|w_i| <= 5%`
+  - annualized volatility target: `10%`
+  - sector exposure tolerance: `+-2%`
+- Uses monthly rebalancing and a relaxation cascade if the strict problem is infeasible.
 
-#### Task 3.3 — Enhanced Optimizer (`HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb`)
+#### Task 3.3 - Enhanced Optimizer (`HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb`)
 
-| Enhancement | Baseline | Enhanced |
+| Constraint / Setting | Baseline | Enhanced |
 |---|---|---|
-| Beta Neutrality | Not enforced | \|β_mkt · w\| ≤ 0.05 |
-| Diversification | w_max = 5%, ~50 positions | w_max = 2%, ~100+ positions |
-| Gross Leverage | 2.0 | 2.5 |
-| Factor Neutrality | None | SMB/HML exposure constraints |
+| Market beta neutrality | Not enforced | `|beta_mkt . w| <= 0.05` |
+| Beta estimator | N/A | 36-month monthly beta, minimum 24 observations |
+| Single-name bound | `5%` | `2%` |
+| Gross leverage | `2.0` | `2.5` |
+| Sector tolerance | `+-2%` | `+-2%` |
+| Hard SMB/HML exposure constraints | None | None |
 
 ### Phase 4: Backtesting & Performance Attribution
 
 **Notebook**: `HFS_Phase4_Task3_2_Backtest_Attribution.ipynb`
 
-- **Realistic transaction cost model**: commission (2 bps) + market impact (Almgren model) + borrow cost (50 bps annualized for shorts)
-- **Fama-French 5-Factor regression**: isolates alpha from MktRF, SMB, HML, RMW, CMA exposures
-- **Rolling analysis**: 12-month rolling alpha, beta, information ratio
-- **Drawdown analysis**: maximum drawdown, recovery periods, stress-test decomposition
-- **Long/short leg attribution**: separate performance analysis for long and short portfolios
+- Implements a simplified monthly proxy cost model:
+  - commission: `5 bp` one-way
+  - market-impact proxy: `5 bp` one-way
+  - borrow cost: `50 bp` annualized on the short leg
+- Converts the baseline gross backtest into net returns and net NAV.
+- Runs monthly Fama-French 5-factor regressions on realized portfolio excess returns.
+- Produces:
+  - rolling 36-month alpha
+  - rolling 12-month FF5 factor betas
+  - drawdown and recovery analysis
+  - long/short leg attribution
+  - strategy vs SPY comparison charts
 
 ---
 
 ## Results
 
+Snapshot from the saved output files:
+
+- Baseline gross backtest (`data/sp500_backtest_results.csv.gz`)
+  - annualized return: about `11.73%`
+  - annualized volatility: about `18.21%`
+  - Sharpe: about `0.644`
+- Baseline net backtest (`data/sp500_phase4_full_report.csv.gz`)
+  - annualized return: about `9.77%`
+  - annualized volatility: about `18.22%`
+  - Sharpe: about `0.536`
+- Enhanced net backtest (`data/sp500_backtest_results_enhanced.csv.gz`)
+  - annualized return: about `7.48%`
+  - annualized volatility: about `13.99%`
+  - Sharpe: about `0.535`
+- Expected-return signal quality
+  - next-month IC mean: about `0.025`
+  - positive IC months: about `59%`
+
+These performance figures should be interpreted in the context of the implemented monthly proxy backtest and cost model described above.
+
 ### Baseline Strategy Performance
+
 ![Strategy vs SPY](figures/strategy_vs_spy.png)
 ![NAV & Drawdown](figures/nav_drawdown.png)
 
 ### Enhanced Strategy Performance
+
 ![Enhanced Strategy vs SPY](figures_enhanced/strategy_vs_spy_enhanced.png)
 ![Enhanced NAV & Drawdown](figures_enhanced/nav_drawdown_enhanced.png)
 
 ### Factor Attribution
+
 ![Rolling Alpha](figures/rolling_alpha.png)
 ![Factor Exposures](figures/factor_exposures.png)
 
@@ -249,7 +313,7 @@ Phase 4: Backtest & Performance Attribution
 
 ### Python Environment
 
-```
+```text
 python >= 3.9
 numpy
 pandas
@@ -263,8 +327,8 @@ seaborn
 
 ### Data Access
 
-- **WRDS account** is required to run the data fetcher notebook (`HFS_Project_Data_Fetcher_0304.ipynb`)
-- Pre-processed data files are included in the `data/` directory, so subsequent notebooks can be run without WRDS access
+- A WRDS account is required to run `HFS_Project_Data_Fetcher_0304.ipynb`.
+- Pre-processed data files are already included in `data/`, so downstream notebooks can run without WRDS access.
 
 ### Install Dependencies
 
@@ -283,7 +347,7 @@ conda install -c conda-forge cvxpy
 
 ## Usage
 
-The notebooks are designed to be executed **sequentially**. Each notebook reads outputs from previous phases and produces intermediate datasets for downstream tasks.
+Run the notebooks sequentially.
 
 ```bash
 # 1. Data fetching (requires WRDS credentials)
@@ -294,21 +358,25 @@ jupyter notebook HFS_Phase2_Momentum.ipynb
 jupyter notebook HFS_Phase2_Task2_2_CrossSectionalRegression.ipynb
 jupyter notebook HFS_Phase2_Task2_3_FRP_and_ExpectedReturns.ipynb
 
-# 3. Risk model & optimization
+# 3. Risk model and baseline optimization
 jupyter notebook HFS_Phase3_Task3_1_PCA_RiskModel.ipynb
 jupyter notebook HFS_Phase3_Task3_2_Optimizer.ipynb
 
-# 4. Backtesting & attribution
-jupyter notebook HFS_Phase4_Task3_2_Backtest_Attribution.ipynb
-
-# (Optional) Enhanced optimizer with stricter constraints
+# 4. Enhanced branch (optional)
 jupyter notebook HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb
+
+# 5. Baseline Phase 4 attribution
+jupyter notebook HFS_Phase4_Task3_2_Backtest_Attribution.ipynb
 ```
 
-> **Note**: If the pre-processed data files already exist in `data/`, you can start from any phase without re-running earlier notebooks.
+Notes:
+
+- `HFS_Phase4_Task3_2_Backtest_Attribution.ipynb` analyzes the **baseline** branch and writes `data/sp500_phase4_full_report.csv.gz` plus `figures/`.
+- `HFS_Phase3_Task3_3_Enhanced_Optimizer_Phase4.ipynb` generates the **enhanced** branch outputs and writes `figures_enhanced/`.
+- If the data files already exist in `data/`, you can start from any downstream phase.
 
 ---
 
 ## License
 
-This project is for academic and educational purposes. The data is sourced from WRDS (CRSP & Compustat) and Fama-French Data Library, subject to their respective terms of use.
+This project is for academic and educational purposes. Data sourced from WRDS (CRSP and Compustat) and the Fama-French Data Library remains subject to their respective terms of use.
