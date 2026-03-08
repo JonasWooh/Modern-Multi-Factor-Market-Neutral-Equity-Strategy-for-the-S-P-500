@@ -2,8 +2,6 @@
 
 A comprehensive quantitative finance research project that implements a multi-factor market-neutral equity strategy on the S&P 500 universe. The repository covers the full research pipeline: data acquisition, factor engineering, risk modeling, portfolio optimization, and monthly proxy backtesting with performance attribution.
 
-> This README documents the code as currently implemented. It includes two instructor-approved simplifications relative to the original proposal: (1) Phase 3 uses post-PCA diagonal shrinkage instead of Ledoit-Wolf shrinkage, and (2) Phase 4 is a monthly proxy backtest with a flat transaction-cost model rather than an execution-level simulator.
->
 > Authorship notice: all code in this repository was independently written and assembled by Jonas Wu. Please do not copy, reuse, or redistribute this work without explicit permission and proper attribution.
 
 ---
